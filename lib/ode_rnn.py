@@ -54,7 +54,7 @@ class ODE_RNN(nn.Module):
             prev_hidden_std = prev_hidden_std.to(data.get_device())
 
         interval_length = time_steps[-1] - time_steps[0]
-        minimum_step = interval_length / 50
+        minimum_step = interval_length / 100
 
         outputs = []
 
@@ -69,7 +69,7 @@ class ODE_RNN(nn.Module):
             if time_steps[i] - time_steps[i - 1] < minimum_step:
                 inc = self.ode_solver.ode_func(time_steps[i - 1], prev_hidden)
 
-                ode_sol = prev_hidden + inc * (time_steps[i - 1] - time_steps[i])
+                ode_sol = prev_hidden + inc * (time_steps[i] - time_steps[i - 1])
                 ode_sol = torch.stack((prev_hidden, ode_sol), 1)
             # Several steps.
             else:
