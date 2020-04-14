@@ -73,7 +73,7 @@ class ODE_RNN(nn.Module):
                 ode_sol = torch.stack((prev_hidden, ode_sol), 1)
             # Several steps.
             else:
-                num_intermediate_steps = max(2, ((time_steps[i - 1] - time_steps[i])/minimum_step).int())
+                num_intermediate_steps = max(2, ((time_steps[i] - time_steps[i - 1])/minimum_step).int())
 
                 time_points = torch.linspace(time_steps[i - 1], time_steps[i],
                                              num_intermediate_steps)
