@@ -112,7 +112,7 @@ class DataGenerator(metaclass=abc.ABCMeta):
         if self.extrapolation:
             if self.plot:
                 x_extrap = np.linspace(*self.extrapolation_range, 
-                    num=self.num_points_per_batch)                
+                    num=self.num_points_per_batch)[1:]              
             else:
                 num_test_points = np.random.randint(3, self.max_test_points + 1)
                 x_extrap = np.sort(_rand(self.extrapolation_range, num_test_points))
@@ -146,7 +146,7 @@ class DataGenerator(metaclass=abc.ABCMeta):
             task['y'][i, points_indicies, 0] = self.sample(x[points_indicies])
             task['mask_first'][i, start_point_index:] = 1
             task['mask_obs'][i, points_indicies[:num_train_points]] = 1
-            task['mask_obs'][i, points_indicies[self.num_points_per_batch:]] = 1
+            #task['mask_obs'][i, points_indicies[num_points:]] = 1
             task['mask_y'][i, points_indicies] = 1
 
         # Delete unused times.

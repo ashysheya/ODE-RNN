@@ -12,8 +12,8 @@ class GaussianLogLikelihoodLoss(nn.Module):
 
         self.obsrv_std = torch.Tensor([obsrv_std]).to(device)
 
-    def forward(self, ground_truth, pred, mask):
-        gaussian = Normal(loc=pred, scale=self.obsrv_std)
+    def forward(self, ground_truth, pred, pred_std, mask):
+        gaussian = Normal(loc=pred, scale=pred_std)
         log_prob = gaussian.log_prob(ground_truth[:, 1:])
         log_prob = (log_prob * mask[:, 1:]).sum()/mask[:, 1:].sum()
         return -log_prob
@@ -23,6 +23,6 @@ class MSELoss(nn.Module):
     def __init__(self):
         super(MSELoss, self).__init__()
 
-    def forward(self, ground_truth, pred, mask):
+    def forward(self, ground_truth, pred, pred_std, mask):
         mse_loss = mask[:, 1:] * (ground_truth[:, 1:] - pred)**2
         return mse_loss.sum()/mask[:, 1:].sum()

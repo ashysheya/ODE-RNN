@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import lib.data
 from lib.ode_rnn import get_net
 from lib.losses import get_loss
+from tensorboardX import SummaryWriter
 
 from lib.utils import (
     device,
@@ -34,13 +35,13 @@ def validate(data, model, log_likelihood, mse_loss, report_freq=None):
     with torch.no_grad():
         for step, task in enumerate(data):
 
-            pred = model(task['y'], task['mask_obs'], task['mask_first'], task['x'], 
+            pred, pred_std = model(task['y'], task['mask_obs'], task['mask_first'], task['x'], 
                 extrap_time=task['extrap_time'])
 
             for loss in losses:
                 index = task['extrap_index']
                 loss_obj = losses[loss](task['y'][:, :index], pred[:, :index-1], 
-                    task['mask_y'][:, :index])
+                    pred_std[:, :index-1], task['mask_y'][:, :index])
 
                 ravg[loss].update(loss_obj.item(), 1)
                 if report_freq:
@@ -48,7 +49,7 @@ def validate(data, model, log_likelihood, mse_loss, report_freq=None):
 
                 if index < task['x'].size()[0]:
                     loss_obj = losses[loss](task['y'][:, index-1:], pred[:, index-1:], 
-                        task['mask_y'][:, index-1:])
+                        pred_std[:, index-1:], task['mask_y'][:, index-1:])
 
                     ravg[f'{loss}_extrap'].update(loss_obj.item(), 1)
                     if report_freq:
@@ -63,9 +64,9 @@ def train(data, model, loss, opt, use_sampling, report_freq):
     ravg = RunningAverage()
     model.train()
     for step, task in enumerate(data):
-        pred = model(task['y'], task['mask_obs'], task['mask_first'], task['x'], 
-            use_sampling=use_sampling)
-        obj = loss(task['y'], pred, task['mask_y'])
+        pred, pred_std = model(task['y'], task['mask_obs'], task['mask_first'], task['x'], 
+        	use_sampling=use_sampling)
+        obj = loss(task['y'], pred, pred_std, task['mask_y'])
         obj.backward()
         opt.step()
         opt.zero_grad()
@@ -84,8 +85,10 @@ def plot_model_task(model, data, epoch, wd):
     for step, task in enumerate(data):
         model.eval()
         with torch.no_grad():
-            pred = to_numpy(model(task['y'], task['mask_obs'], task['mask_first'], 
-                task['x'], extrap_time=task['extrap_time']))
+            pred, pred_std = model(task['y'], task['mask_obs'], task['mask_first'], 
+                task['x'], extrap_time=task['extrap_time'])
+            pred = to_numpy(pred)
+            pred_std = to_numpy(pred_std)
 
         observations_mask = to_numpy(task['mask_obs'])
         ground_truth_data = to_numpy(task['y'])
@@ -99,6 +102,10 @@ def plot_model_task(model, data, epoch, wd):
                         ground_truth_data[i, observations_mask[i] == 1][:num_context_points],
                         label='Context Set', color='indianred')
             plt.plot(x[1:], pred[i], label='Predicted', color='navy')
+
+            plt.fill_between(x[1:], pred[i] + 2 * pred_std[i],
+                pred[i] - 2 * pred_std[i], color='navy', alpha=0.1)
+
             plt.plot(x, ground_truth_data[i], label='Oracle GP', color='forestgreen')
 
             plt.legend()
@@ -207,6 +214,8 @@ log_likelihood, mse_loss = get_loss(args)
 opt = torch.optim.Adamax(model.parameters(),
                          args.learning_rate)
 
+writer = SummaryWriter(f'logs/{args.root}')
+
 print(f'Number of trainable parameters: {model.num_params}')
 
 if args.train:
@@ -220,10 +229,15 @@ if args.train:
             use_sampling=args.use_sampling, report_freq=50)
         report_loss('Training', train_obj, 'epoch')
 
+        writer.add_scalar('train_nll', train_obj, epoch)
+
         # Compute validation objective.
         val_dict = validate(gen_val, model, log_likelihood, mse_loss, report_freq=20)
 
         report_loss('Validation', val_dict['log_likelihood'], 'epoch')
+
+        writer.add_scalar('val_nll', val_dict['log_likelihood'], epoch)
+        writer.add_scalar('val_nll_extrap', val_dict['log_likelihood_extrap'], epoch)
 
         plot_model_task(model, gen_plot, epoch, wd)
 
@@ -251,5 +265,5 @@ else:
 loss_dict = validate(gen_test, model, log_likelihood, mse_loss)
 for loss in loss_dict:
     print(f'Model averages a {loss} of {loss_dict[loss]} on unseen tasks.')
-    with open(wd.file(f'loss.txt'), 'w') as f:
+    with open(wd.file(f'{loss}.txt'), 'w') as f:
         f.write(str(loss_dict[loss]))

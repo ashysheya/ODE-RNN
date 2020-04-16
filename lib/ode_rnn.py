@@ -29,18 +29,20 @@ class ODE_RNN(nn.Module):
 
         rec_ode_func = ODEFunc(ode_func_net=ode_func_net)
 
-        self.ode_solver = DiffeqSolver(rec_ode_func, "dopri5", odeint_rtol=1e-3, odeint_atol=1e-4)
+        self.ode_solver = DiffeqSolver(rec_ode_func, "euler", odeint_rtol=1e-3, odeint_atol=1e-4)
 
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, decoder_units),
             nn.Tanh(),
-            nn.Linear(decoder_units, input_dim))
+            nn.Linear(decoder_units, input_dim*2))
 
         utils.init_network_weights(self.decoder)
 
         self.gru_unit = GRU_Unit(latent_dim, input_dim, n_units=decoder_units)
 
         self.latent_dim = latent_dim
+
+        self.sigma_fn = nn.Softplus()
 
     def forward(self, data, mask, mask_first, time_steps, extrap_time=float('inf'), use_sampling=False):
 
@@ -54,9 +56,10 @@ class ODE_RNN(nn.Module):
             prev_hidden_std = prev_hidden_std.to(data.get_device())
 
         interval_length = time_steps[-1] - time_steps[0]
-        minimum_step = interval_length / 100
+        minimum_step = interval_length / 50
 
         outputs = []
+        outputs_std = []
 
         prev_observation = data[:, 0]
 
@@ -96,7 +99,10 @@ class ODE_RNN(nn.Module):
 
             prev_hidden, prev_hidden_std = hidden, hidden_std
 
-            outputs += [self.decoder(output_hidden)]
+            mean, std = torch.chunk(self.decoder(output_hidden), chunks=2, dim=-1)
+
+            outputs += [mean]
+            outputs_std += [self.sigma_fn(std)]
 
             if use_sampling:
                 prev_output = prev_output*(1 - mask_i) + mask_i*outputs[-1]
@@ -107,8 +113,9 @@ class ODE_RNN(nn.Module):
                 prev_observation = prev_observation*(1 - mask_i) + mask_i*outputs[-1]
 
         outputs = torch.stack(outputs, 1)
+        outputs_std = torch.stack(outputs_std, 1)
 
-        return outputs
+        return outputs, outputs_std
 
     @property
     def num_params(self):
